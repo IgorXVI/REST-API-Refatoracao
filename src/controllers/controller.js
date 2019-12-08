@@ -10,14 +10,50 @@ module.exports = class Controller {
         this.flat = require("flat")
         this.sanitazeHtml = require("sanitize-html")
 
+        this.CustomError = require("../errors/custom_error")
         this.EndpointValidationError = require("../errors/endpoint_validaton_error")
+    }
+
+    get test() {
+        let middlewares = this.generateValidators({
+            id: {
+                in: ["body", "params", "query"],
+                isInt: true,
+                toInt: true
+            },
+            "banana.*.id": {
+                in: ["body", "params", "query"],
+                isInt: true,
+                toInt: true
+            },
+            "banana.*.str": {
+                in: ["body", "params", "query"],
+                optional: true
+            }
+        })
+
+        middlewares.push(this.serveTest)
+
+        return middlewares
+    }
+
+    serveTest(req, res, next) {
+        try {
+            console.log(JSON.stringify(req.body, null, 2))
+            res.status(200).json({
+                sucesso: true
+            })
+        }
+        catch (error) {
+            next(error)
+        }
     }
 
     generateValidators(vSchema) {
         let validators = this.checkSchema(vSchema)
 
         validators.push(this.checkEndpointValidationErrors)
-        
+
         validators.push(this.flatImportant)
         validators.push(this.sanitazeAll)
         validators.push(this.removeInvalidAttributes(vSchema))
@@ -26,66 +62,78 @@ module.exports = class Controller {
         return validators
     }
 
-    flatImportant(req, res, next) {
-        try {
-            let obj = {
-                body: {},
-                query: {},
-                params: {}
-            }
+    get flatImportant() {
+        const flat = this.flat
 
-            Object.assign(obj.body, req.body)
-            Object.assign(obj.query, req.query)
-            Object.assign(obj.params, req.params)
-
-            let objFlat = this.flat(obj)
-
-            req.flatImportant = objFlat
-
-            next()
-        }
-        catch (error) {
-            next(error)
-        }
-    }
-
-    unFlatImportant(req, res, next) {
-        try {
-            let obj = {}
-            Object.assign(obj, req.flatImportant)
-
-            let objUnFlat = this.flat.unflatten(obj)
-
-            req.body = objUnFlat.body
-            req.query = objUnFlat.query
-            req.params = objUnFlat.params
-
-            delete req.flatImportant
-
-            next()
-        }
-        catch (error) {
-            next(error)
-        }
-    }
-
-    sanitazeAll(req, res, next) {
-        try {
-            let objFlat = {}
-            Object.assign(objFlat, req.flatImportant)
-
-            Object.keys(objFlat).forEach(key => {
-                if (typeof objFlat[key] === "string") {
-                    objFlat[key] = this.sanitazeHtml(objFlat[key])
+        return (req, res, next) => {
+            try {
+                let obj = {
+                    body: {},
+                    query: {},
+                    params: {}
                 }
-            })
 
-            req.flatImportant = objFlat
+                Object.assign(obj.body, req.body)
+                Object.assign(obj.query, req.query)
+                Object.assign(obj.params, req.params)
 
-            next()
+                let objFlat = flat(obj)
+
+                req.flatImportant = objFlat
+
+                next()
+            }
+            catch (error) {
+                next(error)
+            }
         }
-        catch (error) {
-            next(error)
+    }
+
+    get unFlatImportant() {
+        const flat = this.flat
+
+        return (req, res, next) => {
+            try {
+                let obj = {}
+                Object.assign(obj, req.flatImportant)
+
+                let objUnFlat = flat.unflatten(obj)
+
+                req.body = objUnFlat.body
+                req.query = objUnFlat.query
+                req.params = objUnFlat.params
+
+                delete req.flatImportant
+
+                next()
+            }
+            catch (error) {
+                next(error)
+            }
+        }
+    }
+
+    get sanitazeAll() {
+        const sanitazeHtml = this.sanitazeHtml
+
+        return (req, res, next) => {
+            try {
+                let objFlat = {}
+                Object.assign(objFlat, req.flatImportant)
+
+                Object.keys(objFlat).forEach(key => {
+                    if (typeof objFlat[key] === "string") {
+                        objFlat[key] = sanitazeHtml(objFlat[key])
+                    }
+                })
+
+                req.flatImportant = objFlat
+
+                next()
+            }
+            catch (error) {
+                next(error)
+            }
         }
     }
 
@@ -113,12 +161,15 @@ module.exports = class Controller {
 
                 Object.keys(objFlat).forEach(key => {
                     const pointIndex = key.indexOf(".")
-                    const location = key.substring(0, pointIndex)
 
-                    const kr = key.replace(`${location}.`, "").key.replace(match, "*")
+                    if (pointIndex !== -1) {
+                        const location = key.substring(0, pointIndex)
 
-                    if (!(allowAttrsObj[location].includes(kr))) {
-                        delete objFlat[key]
+                        const kr = key.replace(`${location}.`, "").replace(match, ".*.")
+
+                        if (!(allowAttrsObj[location].includes(kr))) {
+                            delete objFlat[key]
+                        }
                     }
                 })
 
@@ -132,19 +183,22 @@ module.exports = class Controller {
         }
     }
 
-    checkEndpointValidationErrors(req, res, next) {
-        try {
-            const vResult = this.validationResult(req)
+    get checkEndpointValidationErrors() {
+        const validationResult = this.validationResult
 
-            if (vResult.isEmpty()) {
+        return (req, res, next) => {
+            try {
+                const vResult = validationResult(req)
+
+                if (!(vResult.isEmpty())) {
+                    throw new this.EndpointValidationError(vResult.errors)
+                }
+
                 next()
             }
-            else {
-                next(new this.EndpointValidationError(vResult.errors))
+            catch (error) {
+                next(error)
             }
-        }
-        catch (error) {
-            next(error)
         }
     }
 }

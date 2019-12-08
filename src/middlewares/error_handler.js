@@ -1,6 +1,7 @@
 const CustomError = require("../errors/custom_error")
 
-module.exports = (error, req, res) => {
+// eslint-disable-next-line no-unused-vars
+module.exports = (error, req, res, next) => {
     try {
         let errorJSON = {
             requestInfo: {
